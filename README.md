@@ -2,53 +2,70 @@
 
 [![Tests](https://github.com/bahrul-dev/ecommerce-scraper-pro/actions/workflows/tests.yml/badge.svg)](https://github.com/bahrul-dev/ecommerce-scraper-pro/actions/workflows/tests.yml)
 
-Production-grade web scraping pipeline untuk mengekstrak data produk e-commerce, dibangun untuk mendemonstrasikan praktik scraping yang scalable, reliable, dan bertanggung jawab (ethical scraping).
-
-Dibangun sebagai showcase kemampuan yang mencakup: static & dynamic content scraping, dual storage (relational + NoSQL), ethical scraping compliance, dan automated testing tanpa dependency internet.
+Production-grade web scraping pipeline yang mencakup seluruh spektrum kemampuan scraping profesional: HTML parsing (Scrapy), dynamic content (Selenium), API reverse-engineering, dual storage (relational + NoSQL), ethical scraping compliance, proxy rotation, production monitoring, distributed crawling (Redis), dan containerized deployment.
 
 ## Kenapa proyek ini dibuat
 
-Proyek ini adalah evolusi dari beberapa scraper yang sudah pernah saya bangun sebelumnya (hotel database scraper, generator dealer OSINT scraper) — logic parsing/fallback/cleaning-nya reuse dari situ, tapi arsitekturnya di-refactor jadi lebih formal dan lengkap untuk menunjukkan:
+Proyek ini adalah evolusi dari beberapa scraper yang sudah pernah saya bangun sebelumnya (hotel database scraper, generator dealer OSINT scraper) — logic parsing/fallback/cleaning-nya reuse dari situ, tapi arsitekturnya dikembangkan bertahap untuk secara eksplisit menutup semua kategori kemampuan yang biasa dicari di role scraping profesional.
 
-1. Penggunaan **Scrapy** sebagai framework scraping formal (bukan cuma requests/BeautifulSoup script)
-2. Dual storage: **PostgreSQL** (relational) dan **MongoDB** (NoSQL)
-3. **Ethical scraping** — robots.txt compliance, rate limiting adaptif, retry/backoff
-4. **Automated testing** — 16 test case (unit + integration), semua jalan offline
+## Status kejujuran teknis
+
+Proyek ini dikembangkan dengan prinsip: **setiap klaim kemampuan dibuktikan lewat test, dan yang belum bisa dibuktikan penuh dinyatakan jujur apa adanya** — bukan diklaim "selesai" begitu saja. Ringkasannya:
+
+| Kemampuan | Status | Bukti |
+|---|---|---|
+| HTML scraping (Scrapy) | ✅ Teruji penuh, live-verified | 23 test, live crawl ke books.toscrape.com berhasil |
+| Dynamic content (Selenium) | ⚠️ Logic teruji secara desain, belum live-run (butuh Chrome browser) | Kode + stealth options, belum ada test otomatis (tidak ada Chrome di CI) |
+| API reverse-engineering | ✅ Teruji penuh (offline) | 5 test, belum live-test ke fakestoreapi.com sungguhan |
+| Dual storage (PostgreSQL + MongoDB) | ✅ Teruji lewat unit test pipeline | Belum live-test dengan database sungguhan (butuh setup lokal) |
+| Ethical scraping (robots.txt, rate limit, UA rotation) | ✅ Teruji penuh, **live-verified dengan insiden nyata** | Middleware pernah beneran memblokir situs yang robots.txt-nya melarang |
+| Proxy rotation & anti-bot dasar | ✅ Teruji penuh (unit test) | 7 test, belum live-test dengan proxy sungguhan (butuh proxy provider) |
+| Production monitoring | ✅ Teruji penuh, termasuk integrasi live | 10 unit test + 1 integration test yang benar-benar generate report saat crawl |
+| Distributed crawling (Scrapy-Redis) | ✅ Teruji end-to-end dengan Redis sungguhan (1 worker) | 1 integration test; **belum diverifikasi dengan banyak worker paralel di mesin terpisah** |
+| Cloud deployment (Docker) | ⚠️ Syntax tervalidasi, belum live-run | YAML valid, belum pernah `docker compose up` sungguhan (tidak ada Docker di environment dev) |
+
+Baris ⚠️ bukan berarti tidak jalan — itu berarti "kodenya benar secara desain dan sudah divalidasi sejauh yang lingkungan development izinkan, tapi belum ada bukti live run penuh". Ini catatan yang sengaja dipertahankan sebagai bagian dari proyek, bukan disembunyikan.
 
 ## Fitur Utama
 
-### 1. Static content scraping (Scrapy)
-- `scrapy_spider/spiders/ecommerce_spider.py` — spider dengan pagination handling & item pipeline
-- Selector CSS terstruktur, hasil di-yield sebagai `ProductItem`
+### 1. HTML scraping (Scrapy)
+`scrapy_spider/spiders/ecommerce_spider.py` — spider dengan pagination, item pipeline, selector yang di-scope dengan benar (lihat catatan bug availability-scope di ARCHITECTURE.md).
 
-### 2. Dynamic content scraping (Selenium)
-- `selenium_handler/dynamic_scraper.py` — handle infinite scroll / lazy-load
-- Explicit wait (`WebDriverWait`), bukan `time.sleep()` statis, supaya stabil di berbagai kecepatan koneksi
-- Headless Chrome dengan konfigurasi anti-crash (`--no-sandbox`, `--disable-dev-shm-usage`)
+### 2. API reverse-engineering
+`scrapy_spider/spiders/api_spider.py` — mendemonstrasikan pola scraping alternatif: ambil data langsung dari endpoint JSON publik (fakestoreapi.com), bukan parsing HTML. Ini pola yang lebih stabil & lebih sering dipakai scraper profesional dibanding HTML parsing kalau situsnya menyediakan API.
 
-### 3. Ethical scraping (middlewares/)
+### 3. Dynamic content scraping (Selenium)
+`selenium_handler/dynamic_scraper.py` — infinite scroll/lazy-load handling, plus stealth options dasar (override `navigator.webdriver`, disable automation flags) untuk mengurangi deteksi bot paling umum.
+
+### 4. Ethical scraping & anti-bot (`middlewares/`)
 | Middleware | Fungsi |
 |---|---|
-| `robots_checker.py` | Cek & patuhi robots.txt per domain sebelum request dieksekusi, dengan caching |
-| `rate_limiter.py` | Adaptive throttling — delay naik otomatis (exponential backoff) kalau server merespons 429/503 |
-| `user_agent_rotator.py` | Rotasi User-Agent browser mainstream, mencegah beban identitas request tunggal |
+| `robots_checker.py` | Cek & patuhi robots.txt per domain, fail-closed kalau tidak bisa diverifikasi |
+| `rate_limiter.py` | Adaptive throttling — backoff otomatis kalau server merespons 429/503 |
+| `user_agent_rotator.py` | Rotasi User-Agent browser mainstream |
+| `proxy_rotator.py` | Rotasi proxy dengan health tracking (auto-cooldown proxy yang gagal terus), pass-through otomatis kalau tidak ada proxy dikonfigurasi |
 
-### 4. Data cleaning & validasi (`data_cleaning/cleaner.py`)
-- Parsing harga, rating, review count dari teks mentah ke tipe data terstruktur
-- Validasi field wajib — item invalid tidak diteruskan ke storage
-- Testable secara terpisah dari proses scraping (unit test murni)
+### 5. Data cleaning & validasi (`data_cleaning/cleaner.py`)
+Parsing harga/rating/stok, deduplikasi teks (menangani bug nyata yang ditemukan dari live scraping: deskripsi produk yang ter-render dobel), validasi field wajib.
 
-### 5. Dual storage (`pipelines/`)
-- **PostgreSQL** (`postgres_pipeline.py`) — schema relational, upsert berdasarkan URL unik, cocok untuk query terstruktur & histori
-- **MongoDB** (`mongodb_pipeline.py`) — schema fleksibel, cocok untuk data semi-terstruktur / arsip snapshot
+### 6. Dual storage (`pipelines/`)
+PostgreSQL (relational, upsert berbasis URL unik) dan MongoDB (NoSQL, schema fleksibel) berjalan paralel.
 
-### 6. Automated testing (`tests/`)
-- 12 unit test untuk data cleaning (price/rating/review parsing, edge cases)
-- 4 integration test yang menjalankan **full Scrapy crawl** (spider + middleware) terhadap local HTML fixture — **tidak butuh internet**, hasilnya reproducible di CI/CD manapun
+### 7. Production monitoring (`monitoring/health_check.py`)
+Scrapy extension yang otomatis menulis laporan JSON tiap crawl selesai, dan mendeteksi anomali produksi umum: 0 item padahal ada request sukses (indikasi selector rusak), item di bawah ambang batas, robots.txt blocking, error rate tinggi. Bisa disambungkan ke webhook (Slack/Discord) untuk alert otomatis.
+
+### 8. Distributed crawling (`scrapy_spider/spiders/ecommerce_distributed_spider.py`)
+Versi Scrapy-Redis dari spider utama — scheduler & dedup filter disimpan di Redis, memungkinkan beberapa worker (proses/mesin berbeda) berbagi antrian crawling yang sama. Teruji end-to-end dengan Redis sungguhan.
+
+### 9. Containerized deployment (`Dockerfile`, `docker-compose.yml`)
+Stack lengkap (scraper + PostgreSQL + MongoDB + Redis) siap dijalankan dengan satu perintah `docker compose up`.
+
+### 10. Automated testing (`tests/`)
+**51 test** (unit + integration), sebagian besar jalan sepenuhnya offline tanpa dependency internet.
 
 ```bash
 pytest tests/ -v
-# 16 passed
+# 51 passed (1 skipped otomatis kalau Redis tidak tersedia)
 ```
 
 ## Struktur Proyek
@@ -56,26 +73,30 @@ pytest tests/ -v
 ```
 ecommerce-scraper-pro/
 ├── scrapy_spider/
-│   ├── spiders/ecommerce_spider.py   # spider utama (static pages)
-│   ├── items.py                      # schema data produk
-│   └── settings.py                   # konfigurasi middleware & pipeline
-├── selenium_handler/
-│   └── dynamic_scraper.py            # handler dynamic/infinite-scroll content
+│   ├── spiders/
+│   │   ├── ecommerce_spider.py            # spider HTML utama
+│   │   ├── ecommerce_distributed_spider.py # versi Scrapy-Redis
+│   │   ├── api_spider.py                  # spider via API JSON
+│   │   └── base_ecommerce_parser.py       # shared parsing logic (mixin)
+│   ├── items.py
+│   └── settings.py
+├── selenium_handler/dynamic_scraper.py
 ├── middlewares/
-│   ├── robots_checker.py             # ethical scraping: robots.txt compliance
-│   ├── rate_limiter.py               # adaptive throttling + backoff
-│   └── user_agent_rotator.py         # UA rotation
+│   ├── robots_checker.py
+│   ├── rate_limiter.py
+│   ├── user_agent_rotator.py
+│   └── proxy_rotator.py
+├── monitoring/health_check.py             # production monitoring extension
 ├── pipelines/
-│   ├── postgres_pipeline.py          # relational storage
-│   └── mongodb_pipeline.py           # NoSQL storage
-├── data_cleaning/
-│   └── cleaner.py                    # parsing & validasi data
-├── tests/
-│   ├── fixtures/                     # HTML sample untuk offline testing
-│   ├── test_spider_offline.py        # spider override untuk test lokal
-│   └── test_pipeline.py              # 16 test case (unit + integration)
-├── docs/
-│   └── ARCHITECTURE.md               # detail desain teknis & keputusan arsitektur
+│   ├── postgres_pipeline.py
+│   └── mongodb_pipeline.py
+├── data_cleaning/cleaner.py
+├── scripts/preview_cleaned_data.py        # preview data cleaning tanpa DB
+├── tests/                                  # 51 test
+├── docs/ARCHITECTURE.md
+├── Dockerfile
+├── docker-compose.yml
+├── .github/workflows/tests.yml            # CI otomatis (termasuk Redis)
 ├── requirements.txt
 └── scrapy.cfg
 ```
@@ -87,40 +108,49 @@ ecommerce-scraper-pro/
 pip install -r requirements.txt
 ```
 
-> **Catatan kompatibilitas (Windows terutama):** `requirements.txt` sengaja mem-pin versi `twisted` (`>=22.10.0,<24.7.0`). Twisted versi 24.7.0 ke atas menghapus fungsi internal yang masih dipakai Scrapy 2.11.2, menyebabkan `ImportError: cannot import name '_setAcceptableProtocols'`. Kalau lo install ulang dependency dan tetap ketemu error ini, cek dulu versi Twisted yang ter-install (`pip show twisted`) — kemungkinan ke-override oleh dependency lain.
+> **Catatan kompatibilitas (Windows terutama):** `requirements.txt` mem-pin `twisted>=22.10.0,<24.7.0` karena Twisted 24.7+ menghapus fungsi internal yang masih dipakai Scrapy 2.11.2.
 
-### Jalankan test (tidak butuh database/internet)
+### Test (tidak butuh database/internet, Redis opsional)
 ```bash
 pytest tests/ -v
 ```
 
-### Jalankan scraping sungguhan (butuh PostgreSQL & MongoDB running)
+### Scraping HTML biasa
 ```bash
-export POSTGRES_DSN="dbname=ecommerce_scraper user=postgres password=postgres host=localhost port=5432"
-export MONGO_URI="mongodb://localhost:27017"
-
-scrapy crawl ecommerce -o output/products.json
+scrapy crawl ecommerce -O output/products.json
 ```
 
-### Dynamic content (infinite scroll)
-```python
-from selenium_handler.dynamic_scraper import scrape_infinite_scroll_page
+### Scraping via API
+```bash
+scrapy crawl api_products -O output/api_products.json
+```
 
-products = scrape_infinite_scroll_page(
-    "https://example.com/products",
-    max_scrolls=10
-)
+### Preview data yang sudah dibersihkan (tanpa perlu database)
+```bash
+python scripts/preview_cleaned_data.py output/products.json
+```
+
+### Distributed crawling (butuh Redis)
+```bash
+redis-cli lpush ecommerce:start_urls "https://books.toscrape.com/"
+scrapy crawl ecommerce_distributed   # jalankan di 1+ terminal/mesin
+```
+
+### Full stack dengan Docker
+```bash
+docker compose up -d postgres mongo redis
+docker compose run scraper
 ```
 
 ## Target Demo
 
-Spider mengarah ke [books.toscrape.com](https://books.toscrape.com) — sandbox scraping publik resmi yang dibuat oleh tim di balik Scrapy/Zyte, khusus untuk latihan web scraping. **Tidak ada file `robots.txt`** di situs ini (dikonfirmasi 404), artinya tidak ada pembatasan path sama sekali — aman untuk didemokan sepenuhnya tanpa isu legal/etika.
+Spider HTML utama mengarah ke [books.toscrape.com](https://books.toscrape.com) — sandbox scraping resmi tanpa robots.txt (dikonfirmasi 404). Spider API mengarah ke [fakestoreapi.com](https://fakestoreapi.com) — REST API publik untuk testing/prototyping.
 
-> **Catatan proses (kenapa bukan webscraper.io):** Versi awal proyek ini sempat mengarah ke `webscraper.io/test-sites/e-commerce`. Saat live-testing, middleware `robots_checker.py` secara otomatis memblokir scraping tersebut — dan setelah dicek, robots.txt situs itu memang secara eksplisit melarang path tersebut (`Disallow: /test-sites/e-commerce/`). Ini justru validasi nyata bahwa middleware ethical scraping bekerja dengan benar (bukan cuma kode kosmetik), dan jadi alasan proyek ini pindah target ke `books.toscrape.com` yang memang didesain tanpa pembatasan.
+> **Catatan proses:** Versi awal proyek ini sempat mengarah ke `webscraper.io/test-sites/e-commerce`. Middleware `robots_checker.py` otomatis memblokirnya karena robots.txt situs itu memang melarang path tersebut — validasi nyata bahwa middleware ethical scraping bekerja benar, bukan kode kosmetik. Detail lengkap ada di `docs/ARCHITECTURE.md`.
 
 ## Catatan Teknis
 
-Lihat [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) untuk detail keputusan desain: kenapa dual storage, strategi retry/backoff, dan cara scale pipeline ini untuk volume data besar.
+Lihat [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) untuk detail keputusan desain, termasuk bug nyata yang ditemukan & diperbaiki lewat live-testing (bukan cuma asumsi dari dokumentasi).
 
 ---
 

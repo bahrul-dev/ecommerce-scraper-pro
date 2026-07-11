@@ -30,6 +30,20 @@ logger = logging.getLogger("dynamic_scraper")
 
 
 def build_driver(headless: bool = True) -> webdriver.Chrome:
+    """
+    Konfigurasi Chrome driver dengan opsi stealth DASAR -- mengurangi
+    sinyal paling umum yang dipakai situs untuk mendeteksi browser
+    otomatis (bukan bypass anti-bot canggih seperti Cloudflare/DataDome,
+    itu di luar cakupan proyek ini secara sengaja, lihat ARCHITECTURE.md).
+
+    Yang dilakukan di sini:
+      1. Menyembunyikan flag `navigator.webdriver` (indikator paling
+         umum dicek situs untuk tahu browser dikendalikan otomasi)
+      2. Mematikan fitur automation Chrome yang bocor lewat DevTools
+         Protocol (`enable-automation` switch)
+      3. User-Agent browser asli (bukan default Selenium yang beda dari
+         Chrome biasa)
+    """
     options = Options()
     if headless:
         options.add_argument("--headless=new")
@@ -40,7 +54,32 @@ def build_driver(headless: bool = True) -> webdriver.Chrome:
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
     )
-    return webdriver.Chrome(options=options)
+
+    # Stealth dasar: hilangkan flag yang menandakan Chrome dikendalikan
+    # otomasi (bukan bypass anti-bot canggih, cuma menghindari deteksi
+    # paling naif/umum)
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
+    driver = webdriver.Chrome(options=options)
+
+    # navigator.webdriver secara default bernilai True di browser yang
+    # dikendalikan Selenium -- banyak situs cek nilai ini untuk deteksi
+    # bot paling sederhana. Baris ini override jadi undefined lewat CDP,
+    # sebelum halaman apapun dimuat.
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                })
+            """
+        },
+    )
+
+    return driver
 
 
 def scrape_infinite_scroll_page(

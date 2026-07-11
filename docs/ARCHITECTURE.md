@@ -75,10 +75,32 @@ Ditemukan dari data live: teks deskripsi pada sebagian buku muncul berulang pers
 
 **Pelajaran:** integration test dengan fixture (poin 4) membuktikan *mekanisme* pipeline bekerja benar, tapi tidak bisa menjamin *selector* selalu 100% presisi terhadap variasi konten situs live yang sesungguhnya -- termasuk halaman produk yang menampilkan modul lain (carousel, related items) atau anomali konten. Kombinasi automated test + smoke test live tetap diperlukan.
 
-## 9. Yang sengaja belum dibangun (scope boundary)
+## 9. Lima kemampuan tambahan: kenapa dan bagaimana diverifikasi
 
-Untuk menjaga proyek ini fokus dan tidak over-engineered untuk keperluan demo:
+Bagian ini didokumentasikan terpisah karena masing-masing punya tingkat verifikasi yang berbeda -- prinsip proyek ini adalah jujur soal mana yang teruji penuh vs mana yang "benar secara desain, belum live-verified".
 
-- Belum ada proxy rotation (IP rotation) — untuk skala produksi sungguhan dengan target yang agresif memblokir IP, ini biasanya lapisan berikutnya yang ditambahkan.
-- Belum ada scheduler/orchestration (Airflow/Celery) — pipeline ini fokus pada kualitas single-run scraping, orchestration adalah layer terpisah yang bisa ditambahkan di atasnya.
-- Belum ada dashboard monitoring — logging terstruktur sudah ada (semua middleware log ke logger masing-masing), tinggal disambungkan ke sistem monitoring pilihan (mis. Grafana + Loki).
+**a) API reverse-engineering (`api_spider.py`)**
+Sebelum menulis satu CSS selector pun untuk situs baru, langkah profesional pertama adalah cek DevTools > Network > filter XHR/Fetch -- apakah situs memuat data lewat API internal? Kalau ya, scraping API jauh lebih stabil (tidak rusak kalau HTML/CSS situs berubah) dan lebih ringan. Spider ini didemonstrasikan lewat `fakestoreapi.com` (API publik resmi untuk testing, bukan reverse-engineering situs privat). Diuji penuh offline (5 test) dengan fixture JSON lokal.
+
+**b) Proxy rotation (`proxy_rotator.py`)**
+Middleware pass-through by default (tidak butuh proxy untuk proyek jalan), tapi siap dipakai production dengan menambahkan `PROXY_LIST`. Health tracking (auto-cooldown proxy yang gagal berturut-turut) diuji lewat 7 unit test dengan mock request/response -- TIDAK diuji dengan proxy sungguhan karena itu butuh layanan proxy berbayar/pihak ketiga di luar cakupan proyek demo ini.
+
+**c) Production monitoring (`monitoring/health_check.py`)**
+Extension ini yang paling "membuktikan diri sendiri" -- deteksi anomalinya sempat langsung teraktivasi beneran saat debugging distributed spider (menangkap kasus `ZERO_ITEMS` waktu local test server sempat mati). Report JSON terstruktur dibuat tiap crawl selesai, siap disambungkan ke dashboard (Grafana+Loki) kalau di-scale. Pengiriman webhook alert sudah diimplementasi tapi belum diuji end-to-end (butuh URL Slack/Discord sungguhan).
+
+**d) Distributed crawling (`ecommerce_distributed_spider.py`)**
+Dibangun di atas `scrapy-redis`. Diuji end-to-end dengan Redis sungguhan (`redis-server` lokal) -- scheduler dan dedup filter terbukti benar-benar menggunakan Redis (`scheduler/dequeued/redis` di stats), bukan cuma dikonfigurasi tanpa efek. **Batasan verifikasi:** test yang ada membuktikan SATU worker bekerja benar dengan Redis backend. Skenario BANYAK worker paralel di mesin berbeda (use case sesungguhnya dari distributed crawling) belum diverifikasi karena butuh infrastruktur multi-mesin yang di luar cakupan environment pengembangan ini. Logic-nya seharusnya scale sesuai desain scrapy-redis (dipakai luas di industri), tapi klaim itu belum dibuktikan sendiri di proyek ini.
+
+**e) Containerized deployment (`Dockerfile`, `docker-compose.yml`)**
+Syntax YAML dan Dockerfile sudah divalidasi (`docker compose config` setara parsing), tapi belum pernah dijalankan (`docker compose up`) end-to-end karena tidak ada Docker daemon di environment pengembangan proyek ini. Sebelum dipakai deployment produksi sungguhan, wajib diverifikasi dulu di mesin yang punya Docker.
+
+**Kenapa perbedaan level verifikasi ini penting didokumentasikan:** supaya siapa pun yang membaca proyek ini (termasuk reviewer teknis) tahu persis bagian mana yang bisa dipercaya penuh dan bagian mana yang perlu diverifikasi ulang sebelum dipakai di produksi sungguhan. Ini juga alasan kenapa proyek ini punya CI (`.github/workflows/tests.yml`) yang menyediakan Redis service -- supaya klaim "teruji" tetap valid tiap kali ada perubahan kode, bukan cuma benar sekali waktu ditulis.
+
+## 10. Yang sengaja belum dibangun (scope boundary)
+
+Setelah penambahan proxy rotation, monitoring, dan distributed crawling, boundary yang tersisa:
+
+- **Anti-bot tingkat lanjut** (bypass Cloudflare/DataDome/PerimeterX, CAPTCHA solving, browser fingerprint spoofing penuh) — proxy rotation dan Selenium stealth dasar yang ada di proyek ini menangani kasus umum, tapi tidak dirancang untuk melawan sistem anti-bot komersial tingkat tinggi. Itu butuh proxy residensial premium dan teknik yang berada di luar cakupan proyek portfolio ini secara sengaja.
+- **Scheduler/orchestration** (Airflow/Celery) — proyek ini punya distributed crawling (Scrapy-Redis) untuk scale horizontal, tapi belum ada scheduling terjadwal (mis. "crawl tiap 6 jam otomatis"). Itu layer terpisah yang bisa ditambahkan di atas (mis. cron job yang trigger `docker compose run scraper`, atau Airflow DAG).
+- **Dashboard visual monitoring** — `health_check.py` menghasilkan data terstruktur (JSON report per run) yang siap dikonsumsi dashboard, tapi belum ada dashboard visual (Grafana) yang benar-benar terhubung. Datanya sudah ada, visualisasinya belum.
+- **Multi-worker distributed crawling di banyak mesin sungguhan** — lihat poin (d) di atas, ini bukan "belum dibangun" tapi "dibangun, belum diverifikasi di skala penuh".

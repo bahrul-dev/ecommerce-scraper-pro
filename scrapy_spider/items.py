@@ -22,6 +22,8 @@ class ProductItem(scrapy.Item):
     availability_raw = scrapy.Field()    # mis. "In stock (22 available)"
     category = scrapy.Field()
     scraped_at = scrapy.Field()
+    image_url = scrapy.Field()   # dipakai kalau data datang dari API (ada URL gambar)
+    source_type = scrapy.Field()  # "html" atau "api" -- buat bedain asal data
 
     # Field hasil cleaning (diisi oleh data_cleaning pipeline)
     price_clean = scrapy.Field()

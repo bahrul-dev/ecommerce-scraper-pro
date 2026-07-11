@@ -1,0 +1,15 @@
+{
+  "spider_name": "api_products_offline_test",
+  "finish_reason": "finished",
+  "started_at": "2026-07-11T12:00:48.609486+00:00",
+  "finished_at": "2026-07-11T12:00:51.030349+00:00",
+  "duration_seconds": 2.420863,
+  "items_scraped": 3,
+  "requests_made": 1,
+  "responses_received": 1,
+  "response_status_2xx": 1,
+  "response_status_4xx_5xx": 0,
+  "robots_forbidden_count": 0,
+  "exception_count": 0,
+  "anomalies": []
+}

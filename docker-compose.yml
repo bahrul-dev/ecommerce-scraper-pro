@@ -1,0 +1,80 @@
+# docker-compose.yml
+# --------------------
+# Stack lengkap untuk menjalankan proyek ini end-to-end di lingkungan
+# manapun yang punya Docker -- tidak perlu install PostgreSQL/MongoDB/
+# Redis manual satu-satu. Cocok untuk deployment ke VPS/cloud VM, atau
+# sekadar demo lokal yang identik dengan environment produksi.
+#
+# Cara pakai:
+#   docker compose up -d postgres mongo redis    # jalankan infrastruktur dulu
+#   docker compose run scraper                    # jalankan scraping sekali
+#   docker compose run scraper scrapy crawl api_products -O output/api.json
+#
+# CATATAN KEJUJURAN TEKNIS: file ini sudah divalidasi struktur & syntax-nya
+# (docker compose config), TAPI belum pernah dijalankan end-to-end di
+# environment cloud sungguhan (butuh Docker daemon yang tidak tersedia di
+# sandbox pengembangan ini). Sebelum dipakai untuk deployment produksi
+# sungguhan, jalankan dulu `docker compose up` di mesin lokal yang punya
+# Docker untuk verifikasi penuh.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ecommerce_scraper
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  scraper:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_DSN: "dbname=ecommerce_scraper user=postgres password=postgres host=postgres port=5432"
+      MONGO_URI: "mongodb://mongo:27017"
+      REDIS_URL: "redis://redis:6379"
+    volumes:
+      - ./output:/app/output
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
