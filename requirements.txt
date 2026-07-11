@@ -1,0 +1,12 @@
+scrapy==2.11.2
+# Twisted DIPIN secara eksplisit di sini. Twisted >=24.7 menghapus fungsi
+# internal `_setAcceptableProtocols` yang masih dipakai Scrapy 2.11.2,
+# menyebabkan ImportError saat startup (terutama sering muncul di Windows
+# karena pip di sana cenderung menarik Twisted versi paling baru).
+# Versi di bawah ini sudah dites kompatibel dengan Scrapy 2.11.2.
+twisted>=22.10.0,<24.7.0
+selenium==4.21.0
+psycopg2-binary==2.9.9
+pymongo==4.7.2
+python-dotenv==1.0.1
+pandas==2.2.2
